@@ -1,0 +1,180 @@
+:root {
+  --bg-color: #0d0d0f; /* 墨色 (Sumiiro) */
+  --accent-color: #BDB76B; /* DarkKhaki */
+  --highlight-color: #F0E68C; /* Khaki */
+  --text-color: #d1d1d1;
+  --card-bg: rgba(255, 255, 255, 0.02);
+}
+
+#root {
+  width: 100%;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.moon-container {
+  min-height: 100vh;
+  background-color: var(--bg-color);
+  color: var(--text-color);
+  padding: 3rem 1rem;
+  /* 游明朝やMS明朝など、和風のセリフ体を優先 */
+  font-family: "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", "MS Mincho", serif;
+  background-image: radial-gradient(circle at 50% -20%, #1a1a1f 0%, #0d0d0f 80%);
+}
+
+header h1 {
+  font-size: 3.5rem;
+  letter-spacing: 0.8rem;
+  color: var(--accent-color);
+  margin-bottom: 0.5rem;
+  font-weight: normal;
+  text-shadow: 0 0 15px rgba(189, 183, 107, 0.2);
+}
+
+.subtitle {
+  font-style: italic;
+  color: #6a6a6a;
+  margin-bottom: 4rem;
+  letter-spacing: 0.2rem;
+}
+
+.poetic-card {
+  max-width: 650px;
+  margin: 0 auto 6rem auto;
+  position: relative;
+}
+
+/* 縦書きの「和」を意識した装飾（実際は横書きやけど雰囲気だけ） */
+.poetic-card::before {
+  content: "";
+  position: absolute;
+  top: -1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  height: 2rem;
+  background: var(--accent-color);
+  opacity: 0.5;
+}
+
+.poem-card {
+  background: var(--card-bg);
+  padding: 3.5rem 2rem;
+  border-radius: 4px;
+  border-top: 1px solid rgba(189, 183, 107, 0.1);
+  border-bottom: 1px solid rgba(189, 183, 107, 0.1);
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 1.5rem;
+  position: relative;
+}
+
+.poem-text {
+  font-size: 1.4rem;
+  line-height: 3rem;
+  white-space: pre-wrap;
+  color: var(--highlight-color);
+  letter-spacing: 0.15rem;
+}
+
+.loading-text {
+  color: #4a4a4a;
+  font-style: italic;
+}
+
+.news-card {
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+  text-align: left;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.news-image {
+  width: 100%;
+  height: 220px;
+  object-fit: cover;
+  display: block;
+  opacity: 0.6;
+  filter: grayscale(30%);
+  transition: all 0.5s ease;
+}
+
+.news-image:hover {
+  opacity: 0.9;
+  filter: grayscale(0%);
+}
+
+.news-content {
+  padding: 2rem;
+}
+
+.news-content h3 {
+  margin-top: 0;
+  font-size: 1.1rem;
+  line-height: 1.6;
+  color: var(--accent-color);
+  font-weight: normal;
+}
+
+.news-meta {
+  font-size: 0.8rem;
+  color: #5a5a5a;
+  margin-bottom: 1rem;
+}
+
+.news-desc {
+  font-size: 0.9rem;
+  line-height: 1.8;
+  color: #999;
+  margin: 1.5rem 0;
+}
+
+.news-link {
+  color: #667788;
+  text-decoration: none;
+  font-size: 0.85rem;
+  border-bottom: 1px solid transparent;
+  transition: border-bottom 0.3s;
+}
+
+.news-link:hover {
+  border-bottom: 1px solid #667788;
+}
+
+.refresh-button {
+  background-color: transparent;
+  border: 1px solid var(--accent-color);
+  color: var(--accent-color);
+  padding: 1rem 3rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.4s;
+  letter-spacing: 0.3rem;
+  margin-top: 4rem;
+  font-family: inherit;
+}
+
+.refresh-button:hover {
+  background-color: var(--accent-color);
+  color: var(--bg-color);
+  box-shadow: 0 0 20px rgba(189, 183, 107, 0.2);
+}
+
+.fade-in {
+  animation: fadeIn 2s ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.loading {
+  font-size: 1.2rem;
+  color: var(--accent-color);
+  letter-spacing: 0.2rem;
+}
