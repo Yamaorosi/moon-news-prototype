@@ -10,6 +10,9 @@ interface NewsItem {
   imageUrl: string;
 }
 
+// 開発環境と本番環境でAPIの向き先を切り替える
+const API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
+
 // 詩を個別に読み込むためのコンポーネント
 function PoemSection({ title }: { title: string }) {
   const [poem, setPoem] = useState<string | null>(null);
@@ -18,7 +21,7 @@ function PoemSection({ title }: { title: string }) {
   useEffect(() => {
     const fetchPoem = async () => {
       try {
-        const response = await fetch(`http://localhost:8000/poem?title=${encodeURIComponent(title)}`);
+        const response = await fetch(`${API_BASE}/poem?title=${encodeURIComponent(title)}`);
         const json = await response.json();
         setPoem(json.poem);
       } catch (err) {
@@ -51,7 +54,7 @@ function App() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:8000/news');
+      const response = await fetch(`${API_BASE}/news`);
       if (!response.ok) {
         throw new Error('サーバからニュースを取ってこれんかった');
       }
