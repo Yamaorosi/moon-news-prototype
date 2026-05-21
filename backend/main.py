@@ -28,7 +28,50 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = "gemini-2.5-flash"
 
 # --- サービスロジック（ニュース取得） ---
-# ... (変更なし) ...
+def fetch_news(category: str = None, q: str = None, country: str = "us", sources: str = None):
+    url = "https://newsapi.org/v2/top-headlines"
+
+    # カテゴリのリスト
+    categories = ["business", "entertainment", "general", "health", "science", "sports", "technology"]
+
+    # カテゴリもキーワードも指定されてへんかったら、ランダムに選ぶことにしたで
+    selected_category = category
+    if not q and not sources and not category:
+        selected_category = random.choice(categories)
+
+    params = {
+        "pageSize": 3,
+        "apiKey": NEWS_API_KEY
+    }
+
+    if q:
+        params["q"] = q
+    elif sources:
+        params["sources"] = sources
+    else:
+        params["category"] = selected_category or "technology"
+        params["country"] = country
+
+    print(f"Fetching news for category: {params.get('category')} / q: {params.get('q')}")
+    response = requests.get(url, params=params)
+    data = response.json()
+    return data.get("articles", [])
+
+# --- サービスロジック（詩的解釈） ---
+def interpret_with_gemini(title: str):
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+    prompt = f"以下のニュースのタイトルを読み、月や酒のイメージを込めた短い詩（3〜4行）を書いてください：{title}"
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+    
+    print(f"Generating poem for: {title}")
+    response = requests.post(url, json=payload)
+    result = response.json()
+    
+    if 'candidates' in result:
+        return result['candidates'][0]['content']['parts'][0]['text'].strip()
+    else:
+        print(f"Gemini API Error: {result}") # エラーが出たらターミナルで見れるようにしたで
+    return "月は雲に隠れてしまいました..."
 
 # --- エンドポイント ---
 
