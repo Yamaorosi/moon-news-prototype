@@ -115,6 +115,11 @@ function App() {
 
       <footer>
         <p>© 2026 月下読酌</p>
+        <div className="admin-links">
+          <a href={`${API_BASE}/analysis`} target="_blank" rel="noopener noreferrer">分析結果 (JSON)</a>
+          <span> | </span>
+          <a href={`${API_BASE}/history`} target="_blank" rel="noopener noreferrer">保存履歴 (JSON)</a>
+        </div>
       </footer>
     </div>
   )
