@@ -27,82 +27,158 @@ NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = "gemini-2.5-flash"
 
-# --- サービスロジック（ニュース取得） ---
-def fetch_news(category: str = None, q: str = None, country: str = "us", sources: str = None):
-    url = "https://newsapi.org/v2/top-headlines"
+import feedparser
+import urllib.parse
+import sqlite3
+import re
+from datetime import datetime
 
-    # カテゴリのリスト
-    categories = ["business", "entertainment", "general", "health", "science", "sports", "technology"]
+# --- データベース設定 ---
+DB_PATH = "news_cache.db"
 
-    # カテゴリもキーワードも指定されてへんかったら、ランダムに選ぶことにしたで
-    selected_category = category
-    if not q and not sources and not category:
-        selected_category = random.choice(categories)
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS news (
+            url TEXT PRIMARY KEY,
+            title TEXT,
+            source TEXT,
+            published_at TEXT,
+            description TEXT,
+            poem TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    conn.close()
 
-    params = {
-        "pageSize": 3,
-        "apiKey": NEWS_API_KEY
-    }
+# 起動時にDBを初期化
+init_db()
 
+# --- ユーティリティ ---
+def clean_html(raw_html):
+    """HTMLタグを取り除き、綺麗なテキストにする"""
+    if not raw_html: return ""
+    cleaner = re.compile('<.*?>')
+    return re.sub(cleaner, '', raw_html).strip()
+
+# --- サービスロジック ---
+
+def fetch_news_from_rss(q: str = None):
+    """1. ニュースを取得する（RSS）"""
+    base_url = "https://news.google.com/rss"
     if q:
-        params["q"] = q
-    elif sources:
-        params["sources"] = sources
+        encoded_q = urllib.parse.quote(q)
+        url = f"{base_url}/search?q={encoded_q}&hl=ja&gl=JP&ceid=JP:ja"
     else:
-        params["category"] = selected_category or "technology"
-        params["country"] = country
+        url = f"{base_url}?hl=ja&gl=JP&ceid=JP:ja"
 
-    print(f"Fetching news for category: {params.get('category')} / q: {params.get('q')}")
-    response = requests.get(url, params=params)
-    data = response.json()
-    return data.get("articles", [])
+    print(f"Fetching from RSS: {url}")
+    feed = feedparser.parse(url)
+    
+    articles = []
+    for entry in feed.entries[:5]: # 少し多めに取っておく
+        articles.append({
+            "title": entry.title,
+            "source": getattr(entry, 'source', {}).get('title', 'Google News'),
+            "url": entry.link,
+            "published_at": getattr(entry, 'published', ""),
+            "description": clean_html(getattr(entry, 'summary', ""))
+        })
+    return articles
 
-# --- サービスロジック（詩的解釈） ---
-def interpret_with_gemini(title: str):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
-    prompt = f"以下のニュースのタイトルを読み、月や酒のイメージを込めた短い詩（3〜4行）を書いてください：{title}"
-    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+def insert_news_to_db(articles):
+    """2. ニュースをDBに保存する（重複は無視）"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    count = 0
+    for a in articles:
+        try:
+            cursor.execute("""
+                INSERT OR IGNORE INTO news (url, title, source, published_at, description)
+                VALUES (?, ?, ?, ?, ?)
+            """, (a['url'], a['title'], a['source'], a['published_at'], a['description']))
+            if cursor.rowcount > 0:
+                count += 1
+        except Exception as e:
+            print(f"DB Insert Error: {e}")
+    conn.commit()
+    conn.close()
+    print(f"Stored {count} new articles to DB.")
+
+def get_news_from_db(limit=3):
+    """3. DBから最新のニュースを引っ張り出す"""
+    conn = sqlite3.connect(DB_PATH)
+    # 辞書形式で取得できるように設定
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM news ORDER BY created_at DESC LIMIT ?", (limit,))
+    rows = cursor.fetchall()
+    conn.close()
     
-    print(f"Generating poem for: {title}")
-    response = requests.post(url, json=payload)
-    result = response.json()
-    
-    if 'candidates' in result:
-        return result['candidates'][0]['content']['parts'][0]['text'].strip()
-    else:
-        print(f"Gemini API Error: {result}") # エラーが出たらターミナルで見れるようにしたで
-    return "月は雲に隠れてしまいました..."
+    results = []
+    for row in rows:
+        results.append(dict(row))
+    return results
 
 # --- エンドポイント ---
 
 @app.get("/news")
-def get_news(category: str = None, q: str = None, country: str = "us", sources: str = None):
+def get_news_endpoint(q: str = None):
     """
-    ニュースだけを爆速で取得して返す。
+    1. 取得 -> 2. 保存 -> 3. 出力 の流れで実行する
     """
-    articles = fetch_news(category=category, q=q, country=country, sources=sources)
-    if not articles:
+    # 最新を拾いに行く
+    new_articles = fetch_news_from_rss(q=q)
+    # DBに保存（既にあるものはスキップされる）
+    insert_news_to_db(new_articles)
+    # フロントに渡す分をDBから最新順で取得
+    display_news = get_news_from_db(limit=3)
+    
+    if not display_news:
         raise HTTPException(status_code=404, detail="ニュースがありません")
 
-    results = []
-    for article in articles:
-        results.append({
-            "title": article["title"],
-            "source": article["source"]["name"],
-            "url": article["url"],
-            "publishedAt": article["publishedAt"],
-            "description": article.get("description", ""),
-            "imageUrl": article.get("urlToImage", "")
-        })
-    return results
+    # フロントエンドの期待するキー名に変換
+    return [{
+        "title": n["title"],
+        "source": n["source"],
+        "url": n["url"],
+        "publishedAt": n["published_at"],
+        "description": n["description"],
+        "imageUrl": "" # RSSは画像なし
+    } for n in display_news]
 
 @app.get("/poem")
 def get_poem(title: str):
     """
-    指定されたタイトルに対して、じっくり詩を書いて返す。
+    詩を生成し、ついでにDBの該当記事に詩を保存（分析用）
     """
     poem = interpret_with_gemini(title)
+    
+    # DBの更新（タイトルで紐付け）
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("UPDATE news SET poem = ? WHERE title = ?", (poem, title))
+    conn.commit()
+    conn.close()
+    
     return {"poem": poem}
+
+
+@app.get("/history")
+def get_history():
+    """
+    DBに保存されている全ニュースの履歴を返す。
+    分析や中身の確認用。
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM news ORDER BY created_at DESC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(row) for row in rows]
 
 @app.get("/status")
 def status():
