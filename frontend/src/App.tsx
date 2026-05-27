@@ -3,11 +3,9 @@ import './App.css'
 
 interface NewsItem {
   title: string;
-  source: string;
   url: string;
-  publishedAt: string;
-  description: string;
-  imageUrl: string;
+  body: string;
+  poem?: string;
 }
 
 // 開発環境と本番環境でAPIの向き先を切り替える
@@ -23,6 +21,10 @@ function PoemSection({ title, initialPoem }: { title: string, initialPoem?: stri
 
     const fetchPoem = async () => {
       try {
+        // リクエストを分散させるためにランダムな待機（1〜3秒）を入れる
+        const delay = Math.random() * 2000 + 1000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+
         const response = await fetch(`${API_BASE}/poem?title=${encodeURIComponent(title)}`);
         const json = await response.json();
         setPoem(json.poem);
@@ -96,7 +98,7 @@ function App() {
                   <div className="news-card">
                     <div className="news-content">
                       <h3>{news.title}</h3>
-                      <p className="news-desc" style={{ whiteSpace: 'pre-wrap' }}>{news.description}</p>
+                      <p className="news-desc" style={{ whiteSpace: 'pre-wrap' }}>{news.body}</p>
                       <a href={news.url} target="_blank" rel="noopener noreferrer" className="news-link">記事全文を読む</a>
                     </div>
                   </div>
