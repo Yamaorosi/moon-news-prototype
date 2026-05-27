@@ -29,7 +29,14 @@ app.add_middleware(
 
 # --- 設定 ---
 DB = "news.db"
-KEYS = [k for k in [os.getenv("GEMINI_API_KEY1"), os.getenv("GEMINI_API_KEY2")] if k]
+# 1〜4番のキー、および旧名のキーをすべて集める
+KEYS = [k for k in [
+    os.getenv("GEMINI_API_KEY1"), 
+    os.getenv("GEMINI_API_KEY2"),
+    os.getenv("GEMINI_API_KEY3"),
+    os.getenv("GEMINI_API_KEY4"),
+    os.getenv("GEMINI_API_KEY")
+] if k]
 
 # --- スキーマ ---
 
