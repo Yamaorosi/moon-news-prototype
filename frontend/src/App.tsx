@@ -14,11 +14,13 @@ interface NewsItem {
 const API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
 
 // 詩を個別に読み込むためのコンポーネント
-function PoemSection({ title }: { title: string }) {
-  const [poem, setPoem] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+function PoemSection({ title, initialPoem }: { title: string, initialPoem?: string }) {
+  const [poem, setPoem] = useState<string | null>(initialPoem || null);
+  const [loading, setLoading] = useState(!initialPoem);
 
   useEffect(() => {
+    if (initialPoem) return;
+
     const fetchPoem = async () => {
       try {
         const response = await fetch(`${API_BASE}/poem?title=${encodeURIComponent(title)}`);
@@ -31,14 +33,14 @@ function PoemSection({ title }: { title: string }) {
       }
     };
     fetchPoem();
-  }, [title]);
+  }, [title, initialPoem]);
 
   return (
     <div className="poem-card">
       {loading ? (
         <p className="poem-text loading-text">月が詩を綴っています...</p>
       ) : (
-        <p className="poem-text fade-in">{poem}</p>
+        <p className="poem-text fade-in" style={{ whiteSpace: 'pre-wrap' }}>{poem}</p>
       )}
     </div>
   );
@@ -49,7 +51,7 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ニュースだけを先に持ってくる
+  // ニュースを先に持ってくる
   const fetchNews = async () => {
     setLoading(true);
     setError(null);
@@ -79,7 +81,7 @@ function App() {
 
       <main>
         {loading ? (
-          <div className="loading">月下...</div>
+          <div className="loading">ニュースを読み込んでいます...</div>
         ) : error ? (
           <div className="error">{error}</div>
         ) : newsList ? (
@@ -87,18 +89,14 @@ function App() {
             {newsList.map((news, index) => (
               <div key={index} className="poetic-card">
                 <section className="poem-section">
-                  <PoemSection title={news.title} />
+                  <PoemSection title={news.title} initialPoem={news.poem} />
                 </section>
 
                 <section className="news-section">
                   <div className="news-card">
-                    {news.imageUrl && (
-                      <img src={news.imageUrl} alt="news" className="news-image" />
-                    )}
                     <div className="news-content">
                       <h3>{news.title}</h3>
-                      <p className="news-meta">{news.source} | {new Date(news.publishedAt).toLocaleDateString()}</p>
-                      <p className="news-desc">{news.description}</p>
+                      <p className="news-desc" style={{ whiteSpace: 'pre-wrap' }}>{news.description}</p>
                       <a href={news.url} target="_blank" rel="noopener noreferrer" className="news-link">記事全文を読む</a>
                     </div>
                   </div>
