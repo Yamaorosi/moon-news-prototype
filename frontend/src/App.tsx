@@ -9,7 +9,9 @@ interface NewsItem {
 }
 
 // 開発環境と本番環境でAPIの向き先を切り替える
-const API_BASE = import.meta.env.DEV ? 'http://localhost:8000' : '';
+const API_BASE = import.meta.env.DEV 
+  ? 'http://localhost:8000' 
+  : 'https://moon-news-prototype-production.up.railway.app';
 
 // 詩を個別に読み込むためのコンポーネント
 function PoemSection({ title, initialPoem }: { title: string, initialPoem?: string }) {
