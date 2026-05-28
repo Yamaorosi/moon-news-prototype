@@ -7,9 +7,9 @@ from psycopg2.extras import RealDictCursor
 import os
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
-import analysis
 
 load_dotenv()
+import analysis
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
