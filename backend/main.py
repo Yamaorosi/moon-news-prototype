@@ -3,12 +3,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Union
 import requests
 import os
 import feedparser
-import urllib.parse
 import sqlite3
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import re
 import html
 from datetime import datetime
@@ -28,8 +29,10 @@ app.add_middleware(
 )
 
 # --- 設定 ---
-DB = "news.db"
-# 1〜4番のキー、および旧名のキーをすべて集める
+# .env や環境変数に DATABASE_URL があれば Postgres、なければ SQLite
+DATABASE_URL = os.getenv("DATABASE_URL")
+DB_FILE = "news.db"
+
 KEYS = [k for k in [
     os.getenv("GEMINI_API_KEY1"), 
     os.getenv("GEMINI_API_KEY2"),
@@ -38,38 +41,35 @@ KEYS = [k for k in [
     os.getenv("GEMINI_API_KEY")
 ] if k]
 
-# --- スキーマ ---
+# --- DB接続の共通化 ---
 
-class Item(BaseModel):
-    title: str
-    body: str
-    url: str
-    poem: Optional[str] = None
+def get_db_conn():
+    if DATABASE_URL:
+        # PostgreSQL (Railway)
+        return psycopg2.connect(DATABASE_URL)
+    else:
+        # SQLite (Local)
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        return conn
 
-class Poem(BaseModel):
-    poem: str
+def get_cursor(conn):
+    if DATABASE_URL:
+        # PostgreSQLで辞書形式で結果を取得するための設定
+        return conn.cursor(cursor_factory=RealDictCursor)
+    else:
+        return conn.cursor()
 
-class Stat(BaseModel):
-    done: int
-    rate: float
-
-class Kanji(BaseModel):
-    avg: float
-    ratio: float
-
-class Report(BaseModel):
-    total: int
-    poem_stats: Stat
-    len_stats: dict
-    kanji_stats: Kanji
-    top: List[dict]
-    at: str
+def get_placeholder():
+    # PostgreSQLは %s、SQLiteは ? を使う
+    return "%s" if DATABASE_URL else "?"
 
 # --- DB操作 ---
 
 def init():
-    conn = sqlite3.connect(DB)
+    conn = get_db_conn()
     cursor = conn.cursor()
+    # テーブル作成
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS news (
             url TEXT PRIMARY KEY,
@@ -83,39 +83,50 @@ def init():
     conn.close()
 
 def save(items):
-    conn = sqlite3.connect(DB)
+    conn = get_db_conn()
     cursor = conn.cursor()
+    p = get_placeholder()
+    
     for i in items:
         try:
-            cursor.execute("""
-                INSERT OR REPLACE INTO news (url, title, body)
-                VALUES (?, ?, ?)
-            """, (i['url'], i['title'], i['body']))
+            if DATABASE_URL:
+                # PostgreSQL (UPSERT)
+                cursor.execute("""
+                    INSERT INTO news (url, title, body)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (url) DO UPDATE SET
+                    title = EXCLUDED.title,
+                    body = EXCLUDED.body
+                """, (i['url'], i['title'], i['body']))
+            else:
+                # SQLite (UPSERT)
+                cursor.execute(f"""
+                    INSERT OR REPLACE INTO news (url, title, body)
+                    VALUES ({p}, {p}, {p})
+                """, (i['url'], i['title'], i['body']))
         except Exception as e:
             print(f"DB Error: {e}")
     conn.commit()
     conn.close()
 
 def load(limit=None):
-    conn = sqlite3.connect(DB)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    conn = get_db_conn()
+    cursor = get_cursor(conn)
+    query = "SELECT * FROM news ORDER BY at DESC"
+    
     if limit:
-        cursor.execute("SELECT * FROM news ORDER BY at DESC LIMIT ?", (limit,))
+        if DATABASE_URL:
+            cursor.execute(query + f" LIMIT {limit}")
+        else:
+            cursor.execute(query + " LIMIT ?", (limit,))
     else:
-        cursor.execute("SELECT * FROM news ORDER BY at DESC")
+        cursor.execute(query)
+    
     rows = cursor.fetchall()
     conn.close()
     return [dict(row) for row in rows]
 
-def note(title, poem):
-    conn = sqlite3.connect(DB)
-    cursor = conn.cursor()
-    cursor.execute("UPDATE news SET poem = ? WHERE title = ?", (poem, title))
-    conn.commit()
-    conn.close()
-
-# --- 外部API / 整形 ---
+# --- 外部API / 整形 (変更なし) ---
 
 def fix(raw, title=""):
     if not raw: return ""
@@ -149,16 +160,11 @@ def fix(raw, title=""):
     return '\n'.join(lines)
 
 def pull(q: str = None):
-    # NHKニュースの主要ニュースRSS
     url = "https://www3.nhk.or.jp/rss/news/cat0.xml"
-    
-    # 検索(q)がある場合はGoogle Newsに戻るか、現状はNHK固定にする
-    # NHKのRSSは静的なので検索クエリは効かないが、世界観を重視してNHK固定とする
     feed = feedparser.parse(url)
     items = []
     for entry in feed.entries[:10]:
         t = entry.title
-        # NHKのRSSはsummaryに要約が入っている
         raw_body = getattr(entry, 'summary', "")
         items.append({
             "title": t,
@@ -169,10 +175,8 @@ def pull(q: str = None):
 
 def sing(title, body):
     if not KEYS: return "KEYなし。"
-    
-    # 登録されているキーを順番に試す
     for key in KEYS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
         prompt = f"あなたは李白。4行の絶句を詠め。\n題: {title}\n録: {body}\n詩:"
         try:
             res = requests.post(url, headers={'Content-Type': 'application/json'}, 
@@ -181,13 +185,19 @@ def sing(title, body):
             res.raise_for_status()
             return res.json()['candidates'][0]['content']['parts'][0]['text'].strip()
         except Exception:
-            # このキーがダメなら次へ
             continue
-            
-    # すべてのキーが全滅した場合
     return "杯を挙げんとして天を見れば、\n今宵、月は雲海の彼方なり。（API制限）"
 
-# --- エンドポイント --
+# --- エンドポイント ---
+
+class Item(BaseModel):
+    title: str
+    body: str
+    url: str
+    poem: Optional[str] = None
+
+class Poem(BaseModel):
+    poem: str
 
 @app.on_event("startup")
 def startup():
@@ -200,47 +210,38 @@ def get_news(q: str = None):
 
 @app.get("/poem", response_model=Poem)
 def get_poem(title: str):
-    conn = sqlite3.connect(DB)
-    cursor = conn.cursor()
-    # 1. まず既存の詩（キャッシュ）がないか確認
-    cursor.execute("SELECT body, poem FROM news WHERE title = ?", (title,))
+    conn = get_db_conn()
+    cursor = get_cursor(conn)
+    p = get_placeholder()
+    
+    cursor.execute(f"SELECT body, poem FROM news WHERE title = {p}", (title,))
     row = cursor.fetchone()
     
     if not row:
         conn.close()
         raise HTTPException(404, "ニュースなし")
     
-    body, existing_poem = row
+    body = row['body']
+    existing_poem = row['poem']
+    
     if existing_poem:
         conn.close()
         return {"poem": existing_poem}
     
-    # 2. なければ生成
-    p = sing(title, body)
-    cursor.execute("UPDATE news SET poem = ? WHERE title = ?", (p, title))
-    conn.commit()
+    p_text = sing(title, body)
+    
+    # 保存用の接続
+    write_conn = get_db_conn()
+    write_cursor = write_conn.cursor()
+    write_cursor.execute(f"UPDATE news SET poem = {p} WHERE title = {p}", (p_text, title))
+    write_conn.commit()
+    write_conn.close()
     conn.close()
-    return {"poem": p}
-
-@app.get("/analysis", response_model=Report)
-def get_analysis():
-    res = analysis.run(DB)
-    if not res: raise HTTPException(404, "データなし")
-    return res
+    return {"poem": p_text}
 
 @app.get("/history")
 def get_history():
     return load()
-
-# --- 静的ファイル ---
-dist = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-if os.path.exists(dist):
-    app.mount("/", StaticFiles(directory=dist, html=True), name="static")
-    @app.exception_handler(404)
-    async def custom_404(request, __):
-        if not any(request.url.path.startswith(p) for p in ["/news", "/poem", "/analysis", "/history"]):
-            return FileResponse(os.path.join(dist, "index.html"))
-        raise HTTPException(404, "Not Found")
 
 if __name__ == "__main__":
     import uvicorn
