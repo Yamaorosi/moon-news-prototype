@@ -16,14 +16,10 @@ def get_db_conn():
     return psycopg2.connect(DATABASE_URL)
 
 def get_jieqi(dt):
-    """日付から二十四節気を判定する (簡易版)"""
-    month = dt.month
-    day = dt.day
-    md = month * 100 + day
-    
-    if md < 105: return '冬至'
+    """日付から二十四節気を判定する"""
+    md = dt.month * 100 + dt.day
     if md < 120: return '小寒'
-    if md < 204: return '大寒'
+    if md < 205: return '大寒'
     if md < 219: return '立春'
     if md < 306: return '雨水'
     if md < 321: return '啓蟄'
@@ -55,10 +51,11 @@ def get_season(dt):
     if month in [9, 10, 11]: return '秋'
     return '冬'
 
-def count_kanji(text):
-    """テキスト内の漢字の数を数える"""
-    if not text: return 0
-    return len(re.findall(r'[一-龠々]', text))
+def kanji_stats(text):
+    """テキスト内の漢字の数と含有率を計算"""
+    if not text: return {"count": 0, "ratio": 0.0}
+    kanji = len(re.findall(r'[一-龠々]', text))
+    return {"count": kanji, "ratio": round(kanji / len(text), 3)}
 
 def run():
     """APIエンドポイント用の結果を返す関数"""
@@ -77,8 +74,10 @@ def run():
     df['title_len'] = df['title'].str.len()
     df['body_len'] = df['body'].str.len().replace(0, 1) # 0除算防止
     
-    df['kanji_count'] = df['body'].apply(count_kanji)
-    df['kanji_ratio'] = (df['kanji_count'] / df['body_len']).round(3)
+    # 統計情報の更新
+    stats_list = df['body'].apply(kanji_stats).tolist()
+    df['kanji_count'] = [s['count'] for s in stats_list]
+    df['kanji_ratio'] = [s['ratio'] for s in stats_list]
 
     df['jieqi'] = df['at'].apply(get_jieqi)
     df['season'] = df['at'].apply(get_season)
@@ -130,8 +129,11 @@ def run_cli():
     df['at'] = pd.to_datetime(df['at'])
     df['title_len'] = df['title'].str.len()
     df['body_len'] = df['body'].str.len().replace(0, 1)
-    df['kanji_count'] = df['body'].apply(count_kanji)
-    df['kanji_ratio'] = (df['kanji_count'] / df['body_len']).round(3)
+    
+    stats_list = df['body'].apply(kanji_stats).tolist()
+    df['kanji_count'] = [s['count'] for s in stats_list]
+    df['kanji_ratio'] = [s['ratio'] for s in stats_list]
+    
     df['jieqi'] = df['at'].apply(get_jieqi)
     df['season'] = df['at'].apply(get_season)
 

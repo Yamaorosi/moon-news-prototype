@@ -40,9 +40,10 @@ def get_db_conn():
     return psycopg2.connect(DATABASE_URL)
 
 def init_db():
-    """初期テーブル作成"""
+    """初期テーブル作成とカラム追加"""
     with get_db_conn() as conn:
         with conn.cursor() as cursor:
+            # 基本テーブル作成
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS news (
                     url TEXT PRIMARY KEY,
@@ -52,19 +53,28 @@ def init_db():
                     at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # 分析用カラムの追加 (存在しない場合のみ)
+            cursor.execute("ALTER TABLE news ADD COLUMN IF NOT EXISTS kanji_count INTEGER")
+            cursor.execute("ALTER TABLE news ADD COLUMN IF NOT EXISTS kanji_ratio REAL")
+            cursor.execute("ALTER TABLE news ADD COLUMN IF NOT EXISTS season TEXT")
+            cursor.execute("ALTER TABLE news ADD COLUMN IF NOT EXISTS jieqi TEXT")
         conn.commit()
 
 def save_news(items):
     """ニュースをDBに一括保存 (UPSERT)"""
     with get_db_conn() as conn:
         with conn.cursor() as cursor:
-            data = [(i['url'], i['title'], i['body']) for i in items]
+            data = [(i['url'], i['title'], i['body'], i['kanji_count'], i['kanji_ratio'], i['season'], i['jieqi']) for i in items]
             cursor.executemany("""
-                INSERT INTO news (url, title, body)
-                VALUES (%s, %s, %s)
+                INSERT INTO news (url, title, body, kanji_count, kanji_ratio, season, jieqi)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (url) DO UPDATE SET
                 title = EXCLUDED.title,
-                body = EXCLUDED.body
+                body = EXCLUDED.body,
+                kanji_count = EXCLUDED.kanji_count,
+                kanji_ratio = EXCLUDED.kanji_ratio,
+                season = EXCLUDED.season,
+                jieqi = EXCLUDED.jieqi
             """, data)
         conn.commit()
 
@@ -76,23 +86,72 @@ def load_news(limit: int = 3):
             cursor.execute(query, (limit,))
             return [dict(row) for row in cursor.fetchall()]
 
+# --- 分析用ヘルパー ---
+
+def get_jieqi(dt):
+    """日付から二十四節気を判定する"""
+    md = dt.month * 100 + dt.day
+    if md < 120: return '小寒'
+    if md < 205: return '大寒'
+    if md < 219: return '立春'
+    if md < 306: return '雨水'
+    if md < 321: return '啓蟄'
+    if md < 405: return '春分'
+    if md < 420: return '清明'
+    if md < 506: return '穀雨'
+    if md < 521: return '立夏'
+    if md < 606: return '小満'
+    if md < 621: return '芒種'
+    if md < 707: return '夏至'
+    if md < 723: return '小暑'
+    if md < 808: return '大暑'
+    if md < 823: return '立秋'
+    if md < 908: return '処暑'
+    if md < 923: return '白露'
+    if md < 1008: return '秋分'
+    if md < 1024: return '寒露'
+    if md < 1107: return '霜降'
+    if md < 1122: return '立冬'
+    if md < 1207: return '小雪'
+    if md < 1222: return '大雪'
+    return '冬至'
+
+def get_season(dt):
+    """月から季節を判定する"""
+    month = dt.month
+    if month in [3, 4, 5]: return '春'
+    if month in [6, 7, 8]: return '夏'
+    if month in [9, 10, 11]: return '秋'
+    return '冬'
+
+def kanji_stats(text):
+    """テキスト内の漢字の数と含有率を計算"""
+    if not text: return {"count": 0, "ratio": 0.0}
+    kanji = len(re.findall(r'[一-龠々]', text))
+    return {"count": kanji, "ratio": round(kanji / len(text), 3)}
 
 def pull():
     """NHKニュースRSSから最新記事を取得"""
     rss_url = "https://www3.nhk.or.jp/rss/news/cat0.xml"
     feed = feedparser.parse(rss_url)
     items = []
+    now = datetime.now()
     for entry in feed.entries[:10]:
         t = entry.title
         summary = getattr(entry, 'summary', "")
-        # 最低限のクリーンアップ: HTMLタグ除去と空白調整
+        #  HTMLタグ除去と空白調整
         body = re.sub(r'<[^>]+>', '', summary)
         body = html.unescape(body).strip()
         
+        stats = kanji_stats(body)
         items.append({
             "title": t,
             "url": entry.link,
-            "body": body
+            "body": body,
+            "kanji_count": stats["count"],
+            "kanji_ratio": stats["ratio"],
+            "season": get_season(now),
+            "jieqi": get_jieqi(now)
         })
     return items
 
