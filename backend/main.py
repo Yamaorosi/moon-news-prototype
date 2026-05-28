@@ -9,11 +9,31 @@ from dotenv import load_dotenv
 from contextlib import asynccontextmanager
 
 load_dotenv()
-import analysis
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+# --- START: DEBUG & RESILIENT DB URL FINDER (TODO: Remove later) ---
+def find_database_url():
+    # 本命
+    url = os.getenv("DATABASE_URL")
+    if url: return url
+    
+    # Railwayや他のプラットフォームで使われる可能性のある別名
+    fallbacks = ["DATABASE_PUBLIC_URL", "PGURL", "POSTGRES_URL", "SPRING_DATASOURCE_URL"]
+    for name in fallbacks:
+        url = os.getenv(name)
+        if url:
+            print(f"INFO: Using {name} as database connection.")
+            return url
+    return None
+
+DATABASE_URL = find_database_url()
+
 if not DATABASE_URL:
+    print("CRITICAL: DATABASE_URL not found.")
+    print(f"DEBUG: Available environment variables: {list(os.environ.keys())}")
     raise RuntimeError("DATABASE_URL is not set.")
+# --- END: DEBUG & RESILIENT DB URL FINDER ---
+
+import analysis
 
 def get_db_conn():
     return psycopg2.connect(DATABASE_URL)
