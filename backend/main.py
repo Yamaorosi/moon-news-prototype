@@ -76,46 +76,6 @@ def load_news(limit: int = 3):
             cursor.execute(query, (limit,))
             return [dict(row) for row in cursor.fetchall()]
 
-# --- 外部API / 整形 ---
-
-def clean_text(text: str) -> str:
-    """HTMLタグの除去と基本的なクリーンアップ"""
-    if not text: return ""
-    text = text.replace('<li>', '\n').replace('</li>', '')
-    text = re.sub(r'<[^>]+>', '', text)
-    text = html.unescape(text)
-    return re.sub(r'\s{2,}', '\n', text)
-
-def filter_noise(text: str, title: str) -> str:
-    """ニュース本文からノイズを除去して箇条書きに整形"""
-    words = ['ニュース', '新聞', 'NEWS', '通信', 'オンライン', 'ドットコム', 'DIG', 'TIMES']
-    domain_pattern = r'^[a-z0-9.-]+\.[a-z]{2,}$'
-    
-    lines = []
-    for line in text.split('\n'):
-        line = line.strip()
-        if not line: continue
-        if title and (line == title or title in line or line in title):
-            if len(line) > 10: continue
-        
-        is_noise = False
-        if len(line) < 30:
-            if any(w in line for w in words) or re.match(domain_pattern, line, re.I):
-                is_noise = True
-        if any(s in line for s in ['NHK', 'Yahoo', '朝日', '読売', '産経', '共同']):
-            if len(line) < 20: is_noise = True
-        
-        if not is_noise:
-            for w in words:
-                line = re.sub(rf'\s+\S*?{w}$', '', line).strip()
-            if line:
-                lines.append(f"・{line}")
-    return '\n'.join(lines)
-
-def fix(raw: str, title: str = "") -> str:
-    """RSSの生データをクリーンアップして整形"""
-    text = clean_text(raw)
-    return filter_noise(text, title)
 
 def pull():
     """NHKニュースRSSから最新記事を取得"""
@@ -124,10 +84,15 @@ def pull():
     items = []
     for entry in feed.entries[:10]:
         t = entry.title
+        summary = getattr(entry, 'summary', "")
+        # 最低限のクリーンアップ: HTMLタグ除去と空白調整
+        body = re.sub(r'<[^>]+>', '', summary)
+        body = html.unescape(body).strip()
+        
         items.append({
             "title": t,
             "url": entry.link,
-            "body": fix(getattr(entry, 'summary', ""), t)
+            "body": body
         })
     return items
 
