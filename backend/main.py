@@ -176,7 +176,7 @@ def pull(q: str = None):
 def sing(title, body):
     if not KEYS: return "KEYなし。"
     for key in KEYS:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
         prompt = f"あなたは李白。4行の絶句を詠め。\n題: {title}\n録: {body}\n詩:"
         try:
             res = requests.post(url, headers={'Content-Type': 'application/json'}, 
@@ -224,18 +224,21 @@ def get_poem(title: str):
     body = row['body']
     existing_poem = row['poem']
     
-    if existing_poem:
+    # 既存のポエムがあり、かつエラーメッセージ（API制限）でない場合のみキャッシュを返す
+    if existing_poem and "API制限" not in existing_poem:
         conn.close()
         return {"poem": existing_poem}
     
     p_text = sing(title, body)
     
-    # 保存用の接続
-    write_conn = get_db_conn()
-    write_cursor = write_conn.cursor()
-    write_cursor.execute(f"UPDATE news SET poem = {p} WHERE title = {p}", (p_text, title))
-    write_conn.commit()
-    write_conn.close()
+    # 生成に成功（エラーメッセージでない）した場合のみDBに保存
+    if "API制限" not in p_text:
+        write_conn = get_db_conn()
+        write_cursor = write_conn.cursor()
+        write_cursor.execute(f"UPDATE news SET poem = {p} WHERE title = {p}", (p_text, title))
+        write_conn.commit()
+        write_conn.close()
+    
     conn.close()
     return {"poem": p_text}
 
